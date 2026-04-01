@@ -1,0 +1,42 @@
+{
+  "name": "domspy",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "npx prisma generate && next build",
+    "postinstall": "npx prisma generate",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@heroicons/react": "^2.2.0",
+    "@prisma/adapter-pg": "^7.6.0",
+    "@prisma/client": "^7.6.0",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/cheerio": "^0.22.35",
+    "@types/pg": "^8.20.0",
+    "@xyflow/react": "^12.10.2",
+    "axios": "^1.14.0",
+    "bcryptjs": "^3.0.3",
+    "cheerio": "^1.2.0",
+    "next": "16.2.1",
+    "next-auth": "^5.0.0-beta.30",
+    "pg": "^8.20.0",
+    "prisma": "^7.6.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.3.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.1",
+    "tailwindcss": "^4",
+    "tsx": "^4.21.0",
+    "typescript": "^5"
+  }
+}
