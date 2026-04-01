@@ -1,0 +1,108 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  super_admin
+  admin
+  viewer
+}
+
+enum UserStatus {
+  active
+  pending
+  disabled
+}
+
+model User {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  password        String
+  name            String
+  role            UserRole         @default(viewer)
+  status          UserStatus       @default(pending)
+  dismissedAlerts DismissedAlert[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+}
+
+model Domain {
+  id          String         @id @default(cuid())
+  url         String
+  name        String
+  pages       Page[]
+  crawls      CrawlSession[]
+  alerts      DismissedAlert[]
+  createdAt   DateTime       @default(now())
+  lastCrawlAt DateTime?
+}
+
+model Page {
+  id              String           @id @default(cuid())
+  url             String
+  domainId        String
+  domain          Domain           @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  statusCode      Int?
+  responseTime    Int?
+  title           String?
+  description     String?
+  h1              String?
+  contentHash     String?
+  parentPageId    String?
+  parentPage      Page?            @relation("PageTree", fields: [parentPageId], references: [id])
+  childPages      Page[]           @relation("PageTree")
+  linksFrom       Link[]           @relation("FromPage")
+  linksTo         Link[]           @relation("ToPage")
+  crawlId         String?
+  crawl           CrawlSession?    @relation(fields: [crawlId], references: [id])
+  dismissedAlerts DismissedAlert[]
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@unique([url, domainId])
+}
+
+model Link {
+  id         String  @id @default(cuid())
+  fromPageId String
+  fromPage   Page    @relation("FromPage", fields: [fromPageId], references: [id], onDelete: Cascade)
+  toPageId   String?
+  toPage     Page?   @relation("ToPage", fields: [toPageId], references: [id])
+  href       String
+  statusCode Int?
+  isExternal Boolean @default(false)
+  isRedirect Boolean @default(false)
+  anchor     String?
+}
+
+model CrawlSession {
+  id          String    @id @default(cuid())
+  domainId    String
+  domain      Domain    @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  pages       Page[]
+  startedAt   DateTime  @default(now())
+  finishedAt  DateTime?
+  totalPages  Int       @default(0)
+  brokenLinks Int       @default(0)
+  slowPages   Int       @default(0)
+  status      String    @default("running")
+}
+
+model DismissedAlert {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pageId      String
+  page        Page     @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  domainId    String
+  domain      Domain   @relation(fields: [domainId], references: [id], onDelete: Cascade)
+  alertType   String
+  dismissedAt DateTime @default(now())
+
+  @@unique([userId, pageId, alertType])
+}
