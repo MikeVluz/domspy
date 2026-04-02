@@ -116,13 +116,12 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
     const status = getPageStatus(page.statusCode, page.responseTime);
     const colors = STATUS_COLORS[status];
 
-    let displayUrl = page.url;
+    let displayPath = page.url;
     try {
       const u = new URL(page.url);
-      displayUrl = u.pathname === "/" ? u.hostname : u.pathname;
+      displayPath = u.pathname === "/" ? "/" : u.pathname;
     } catch {}
-    const label = page.title || displayUrl;
-    const truncLabel = label.length > 22 ? label.slice(0, 19) + "..." : label;
+    const truncLabel = displayPath.length > 22 ? "..." + displayPath.slice(-19) : displayPath;
 
     // Center node vertically in its allocated space
     const mySize = subtreeSize.get(nodeId) || { w: NODE_W, h: NODE_H };

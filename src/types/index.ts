@@ -10,11 +10,12 @@ export interface CrawlResult {
 }
 
 export function getPageStatus(statusCode: number | null, responseTime: number | null): PageStatus {
-  if (statusCode === null || statusCode === undefined) return "info";
-  if (statusCode === 0 || statusCode >= 400) return "error";
-  if (statusCode >= 300 || (responseTime && responseTime > 2000)) return "warning";
-  if (responseTime && responseTime > 900) return "info";
-  return "ok";
+  if (statusCode === null || statusCode === undefined) return "info"; // Pendente
+  if (statusCode === 0 || statusCode >= 400) return "error";         // Erro
+  if (statusCode >= 300) return "warning";                            // Redirecionamento
+  if (responseTime && responseTime > 2000) return "error";           // Ruim (>2s)
+  if (responseTime && responseTime > 900) return "warning";          // Aceitavel (900ms-2s)
+  return "ok";                                                        // Otimo (<900ms)
 }
 
 export function getStatusErrorMessage(statusCode: number | null): string {
