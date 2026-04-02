@@ -52,6 +52,9 @@ model Page {
   title           String?
   description     String?
   h1              String?
+  headings        String?
+  bodyText        String?
+  images          String?
   contentHash     String?
   parentPageId    String?
   parentPage      Page?            @relation("PageTree", fields: [parentPageId], references: [id])
