@@ -1,15 +1,15 @@
 "use client";
-import { getPageStatus, STATUS_COLORS, getStatusErrorMessage } from "@/types";
+import { getPageStatus, STATUS_COLORS, getStatusErrorMessage, getStatusLabel } from "@/types";
 import { useState } from "react";
 import { XMarkIcon, GlobeAltIcon, ClockIcon, DocumentTextIcon, LinkIcon, ExclamationCircleIcon, CheckCircleIcon, EyeSlashIcon, ArrowTopRightOnSquareIcon, PhotoIcon, CodeBracketIcon, ArrowPathIcon, SwatchIcon } from "@heroicons/react/24/outline";
 
 interface PageDetail { id: string; url: string; title: string | null; description: string | null; h1: string | null; headings: string | null; bodyText: string | null; images: string | null; statusCode: number | null; responseTime: number | null; linksFrom: { href: string; statusCode: number | null; isExternal: boolean; anchor: string | null; }[]; groupMembers?: { group: { id: string; name: string; color: string } }[]; }
 interface GroupOption { id: string; name: string; color: string; }
-interface PageDetailPanelProps { page: PageDetail; onClose: () => void; onDismissAlert?: (pageId: string, alertType: string) => void; dismissedAlerts?: Set<string>; onCrawlPage?: (url: string) => void; groups?: GroupOption[]; onAssignGroup?: (pageId: string, groupId: string) => void; onRemoveFromGroup?: (pageId: string) => void; }
+interface PageDetailPanelProps { page: PageDetail; onClose: () => void; onDismissAlert?: (pageId: string, alertType: string) => void; dismissedAlerts?: Set<string>; onCrawlPage?: (url: string) => void; groups?: GroupOption[]; onAssignGroup?: (pageId: string, groupId: string) => void; onRemoveFromGroup?: (pageId: string) => void; onRemoveFromSpecificGroup?: (pageId: string, groupId: string) => void; }
 
 function getTimeCategory(ms: number | null) { if (ms === null) return { label: "N/A", color: "#6B7280" }; if (ms < 900) return { label: "Otimo", color: "#14A44D" }; if (ms < 2000) return { label: "Aceitavel", color: "#E4A11B" }; return { label: "Ruim", color: "#DC4C64" }; }
 
-export default function PageDetailPanel({ page, onClose, onDismissAlert, dismissedAlerts = new Set(), onCrawlPage, groups = [], onAssignGroup, onRemoveFromGroup }: PageDetailPanelProps) {
+export default function PageDetailPanel({ page, onClose, onDismissAlert, dismissedAlerts = new Set(), onCrawlPage, groups = [], onAssignGroup, onRemoveFromGroup, onRemoveFromSpecificGroup }: PageDetailPanelProps) {
   const currentGroups = page.groupMembers?.map((m) => m.group) || [];
   const status = getPageStatus(page.statusCode, page.responseTime);
   const colors = STATUS_COLORS[status];
@@ -40,7 +40,7 @@ export default function PageDetailPanel({ page, onClose, onDismissAlert, dismiss
             <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/20 shrink-0 ml-4"><XMarkIcon className="w-6 h-6" style={{ color: colors.text }} /></button>
           </div>
           <div className="flex items-center gap-6 mt-3" style={{ color: colors.text }}>
-            <span className="text-sm opacity-80">Status: <strong>{page.statusCode === null ? "Pendente" : page.statusCode === 0 ? "ERR" : page.statusCode}</strong></span>
+            <span className="text-sm opacity-80">Status: <strong>{getStatusLabel(page.statusCode)}</strong></span>
             <span className="text-sm opacity-80"><ClockIcon className="w-3.5 h-3.5 inline" /> <strong>{page.responseTime ? `${page.responseTime}ms` : "N/A"}</strong> {page.responseTime !== null && <span className="opacity-70">({timeCat.label})</span>}</span>
             <span className="text-sm opacity-80"><LinkIcon className="w-3.5 h-3.5 inline" /> <strong>{internalLinks.length}</strong> int / <strong>{externalLinks.length}</strong> ext</span>
             {brokenLinks.length > 0 && <span className="text-sm bg-white/20 px-2 py-0.5 rounded-full"><strong>{brokenLinks.length}</strong> quebrados</span>}
@@ -59,7 +59,7 @@ export default function PageDetailPanel({ page, onClose, onDismissAlert, dismiss
             </button>
           )}
           {onAssignGroup && (
-            <GroupDropdown currentGroups={currentGroups} groups={groups} onAssign={(groupId) => onAssignGroup(page.id, groupId)} onRemove={onRemoveFromGroup ? () => onRemoveFromGroup(page.id) : undefined} />
+            <GroupDropdown currentGroups={currentGroups} groups={groups} onAssign={(groupId) => onAssignGroup(page.id, groupId)} onRemove={onRemoveFromGroup ? () => onRemoveFromGroup(page.id) : undefined} onRemoveFromSpecific={onRemoveFromSpecificGroup ? (groupId) => onRemoveFromSpecificGroup(page.id, groupId) : undefined} />
           )}
           {currentGroups.length > 0 && (
             <div className="flex items-center gap-1 ml-2">
@@ -192,7 +192,7 @@ export default function PageDetailPanel({ page, onClose, onDismissAlert, dismiss
   );
 }
 
-function GroupDropdown({ currentGroups, groups, onAssign, onRemove }: { currentGroups: GroupOption[]; groups: GroupOption[]; onAssign: (groupId: string) => void; onRemove?: () => void }) {
+function GroupDropdown({ currentGroups, groups, onAssign, onRemove, onRemoveFromSpecific }: { currentGroups: GroupOption[]; groups: GroupOption[]; onAssign: (groupId: string) => void; onRemove?: () => void; onRemoveFromSpecific?: (groupId: string) => void }) {
   const [open, setOpen] = useState(false);
   const currentIds = new Set(currentGroups.map((g) => g.id));
 
@@ -209,11 +209,17 @@ function GroupDropdown({ currentGroups, groups, onAssign, onRemove }: { currentG
             <div className="px-3 py-2 text-xs text-gray-400">Nenhum grupo criado</div>
           ) : (
             groups.map((g) => (
-              <button key={g.id} onClick={() => { onAssign(g.id); setOpen(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-gray-50 flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
-                {g.name}
-                {currentIds.has(g.id) && <span className="ml-auto text-[10px] bg-gray-100 px-1.5 py-0.5 rounded">adicionado</span>}
-              </button>
+              <div key={g.id} className="flex items-center px-3 py-2 hover:bg-gray-50">
+                <button onClick={() => { if (!currentIds.has(g.id)) { onAssign(g.id); setOpen(false); } }} className="flex items-center gap-2 flex-1 text-xs text-left">
+                  <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
+                  {g.name}
+                </button>
+                {currentIds.has(g.id) ? (
+                  <button onClick={() => { if (onRemoveFromSpecific) { onRemoveFromSpecific(g.id); setOpen(false); } }} className="text-[10px] text-[#DC4C64] hover:bg-[#DC4C64]/10 px-1.5 py-0.5 rounded">remover</button>
+                ) : (
+                  <span className="text-[10px] text-gray-300">adicionar</span>
+                )}
+              </div>
             ))
           )}
           {currentGroups.length > 0 && onRemove && (

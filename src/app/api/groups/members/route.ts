@@ -32,7 +32,12 @@ export async function DELETE(req: NextRequest) {
     const pageId = searchParams.get("pageId");
     if (!pageId) return NextResponse.json({ error: "pageId obrigatorio" }, { status: 400 });
 
-    await prisma.pageGroupMember.deleteMany({ where: { pageId } });
+    const groupId = searchParams.get("groupId");
+    if (groupId) {
+      await prisma.pageGroupMember.deleteMany({ where: { pageId, groupId } });
+    } else {
+      await prisma.pageGroupMember.deleteMany({ where: { pageId } });
+    }
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json({ error: "Erro: " + String(error) }, { status: 500 });

@@ -51,15 +51,23 @@ function parseHtml(html: string, pageUrl: string): Omit<PageData, "statusCode" |
   $("script, style, noscript").remove();
   const sections: string[] = [];
   const headerText = $("header").first().text().replace(/\\s+/g, " ").trim();
-  if (headerText) sections.push(`[HEADER]\\n${headerText.slice(0, 500)}`);
+  if (headerText) sections.push(`[HEADER]\n${headerText.slice(0, 500)}`);
   const navText = $("nav").first().text().replace(/\\s+/g, " ").trim();
-  if (navText && navText !== headerText) sections.push(`[NAV]\\n${navText.slice(0, 300)}`);
+  if (navText && navText !== headerText) sections.push(`[NAV]\n${navText.slice(0, 300)}`);
   const mainEl = $("main").length ? $("main") : $("article").length ? $("article") : $("body");
   const mainText = mainEl.first().text().replace(/\\s+/g, " ").trim();
-  if (mainText) sections.push(`[CONTEUDO PRINCIPAL]\\n${mainText.slice(0, 3000)}`);
+  if (mainText) sections.push(`[CONTEUDO PRINCIPAL]\n${mainText.slice(0, 3000)}`);
   const footerText = $("footer").first().text().replace(/\\s+/g, " ").trim();
-  if (footerText) sections.push(`[FOOTER]\\n${footerText.slice(0, 500)}`);
-  const bodyTextTruncated = sections.join("\\n\\n").slice(0, 5000) || null;
+  if (footerText) sections.push(`[FOOTER]\n${footerText.slice(0, 500)}`);
+  // Clean: join sections, collapse multiple blank lines into one, remove leading/trailing whitespace per line
+  const rawBody = sections.join("\n\n");
+  const cleanedBody = rawBody
+    .replace(/\\n/g, "\n")          // fix escaped newlines
+    .replace(/[ \t]+$/gm, "")       // trim trailing spaces per line
+    .replace(/\n{3,}/g, "\n\n")     // collapse 3+ newlines to 2
+    .replace(/^\s*\n/gm, "")        // remove empty lines
+    .trim();
+  const bodyTextTruncated = cleanedBody.slice(0, 5000) || null;
 
   const rawBodyText = $("body").text().replace(/\\s+/g, " ").trim();
   const contentHash = simpleHash(rawBodyText);

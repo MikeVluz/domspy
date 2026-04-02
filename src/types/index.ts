@@ -32,6 +32,25 @@ export function getStatusErrorMessage(statusCode: number | null): string {
   return `Status ${statusCode}`;
 }
 
+export function getStatusLabel(statusCode: number | null): string {
+  if (statusCode === null) return "Pendente";
+  if (statusCode === 0) return "Sem resposta";
+  if (statusCode === 200) return "200: OK";
+  if (statusCode === 301) return "301: Redirecionado";
+  if (statusCode === 302) return "302: Redirecionado";
+  if (statusCode === 403) return "403: Bloqueado";
+  if (statusCode === 404) return "404: Nao encontrada";
+  if (statusCode === 500) return "500: Erro servidor";
+  if (statusCode === 502) return "502: Gateway erro";
+  if (statusCode === 503) return "503: Indisponivel";
+  if (statusCode === 504) return "504: Timeout";
+  if (statusCode >= 200 && statusCode < 300) return `${statusCode}: OK`;
+  if (statusCode >= 300 && statusCode < 400) return `${statusCode}: Redireciona`;
+  if (statusCode >= 400 && statusCode < 500) return `${statusCode}: Erro cliente`;
+  if (statusCode >= 500) return `${statusCode}: Erro servidor`;
+  return `${statusCode}`;
+}
+
 export const STATUS_COLORS = {
   error: { bg: "#DC4C64", text: "#FFFFFF", label: "Erro" },
   warning: { bg: "#E4A11B", text: "#FFFFFF", label: "Aviso" },

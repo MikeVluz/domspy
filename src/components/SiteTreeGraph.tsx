@@ -6,7 +6,7 @@ import {
   useNodesState, useEdgesState, BackgroundVariant, MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { getPageStatus, STATUS_COLORS } from "@/types";
+import { getPageStatus, STATUS_COLORS, getStatusLabel } from "@/types";
 
 interface PageNode {
   id: string; url: string; title: string | null; statusCode: number | null;
@@ -146,7 +146,7 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
             <div className={`text-center px-2 flex flex-col items-center justify-center h-full ${groupColors.length > 0 ? "pt-1" : ""}`}>
               <div className="text-[11px] font-semibold truncate w-full" style={{ color: colors.text }}>{truncLabel}</div>
               <div className="text-[9px] mt-0.5 opacity-80" style={{ color: colors.text }}>
-                {page.statusCode === null ? "Pendente" : page.statusCode === 0 ? "ERR" : `${page.statusCode} | ${page.responseTime || "?"}ms`}
+                {getStatusLabel(page.statusCode)} {page.responseTime ? `| ${page.responseTime}ms` : ""}
               </div>
             </div>
           </div>

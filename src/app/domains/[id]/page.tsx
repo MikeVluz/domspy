@@ -239,6 +239,9 @@ export default function DomainDetailPage({ params }: { params: Promise<{ id: str
       } : undefined} onRemoveFromGroup={isAdmin ? async (pageId) => {
         await fetch(`/api/groups/members?pageId=${pageId}`, { method: "DELETE" });
         fetchDomain(); fetchGroups();
+      } : undefined} onRemoveFromSpecificGroup={isAdmin ? async (pageId, groupId) => {
+        await fetch(`/api/groups/members?pageId=${pageId}&groupId=${groupId}`, { method: "DELETE" });
+        fetchDomain(); fetchGroups();
       } : undefined} />}
     </div>
   );
