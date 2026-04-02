@@ -11,8 +11,9 @@ export async function POST(req: NextRequest) {
     const { pageId, groupId } = await req.json();
     if (!pageId || !groupId) return NextResponse.json({ error: "pageId e groupId obrigatorios" }, { status: 400 });
 
-    // Remove from any existing group first
-    await prisma.pageGroupMember.deleteMany({ where: { pageId } });
+    // Check if already in this group
+    const existing = await prisma.pageGroupMember.findFirst({ where: { pageId, groupId } });
+    if (existing) return NextResponse.json({ message: "Ja esta neste grupo" });
 
     const member = await prisma.pageGroupMember.create({ data: { pageId, groupId } });
     return NextResponse.json(member, { status: 201 });

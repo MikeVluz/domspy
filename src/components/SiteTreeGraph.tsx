@@ -128,7 +128,7 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
     const mySize = subtreeSize.get(nodeId) || { w: NODE_W, h: NODE_H };
     const nodeY = y + mySize.h / 2 - NODE_H / 2;
 
-    const groupColor = page.groupMembers?.[0]?.group?.color || null;
+    const groupColors = page.groupMembers?.map((m) => m.group.color) || [];
 
     nodes.push({
       id: nodeId,
@@ -136,7 +136,13 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
       data: {
         label: (
           <div className="w-full h-full relative overflow-hidden rounded-[10px]">
-            {groupColor && <div className="absolute top-0 left-0 right-0 h-[6px]" style={{ backgroundColor: groupColor }} />}
+            {groupColors.length > 0 && (
+              <div className="absolute top-0 left-0 right-0 h-[6px] flex">
+                {groupColors.map((c, i) => (
+                  <div key={i} className="h-full flex-1" style={{ backgroundColor: c }} />
+                ))}
+              </div>
+            )}
             <div className={`text-center px-2 flex flex-col items-center justify-center h-full ${groupColor ? "pt-1" : ""}`}>
               <div className="text-[11px] font-semibold truncate w-full" style={{ color: colors.text }}>{truncLabel}</div>
               <div className="text-[9px] mt-0.5 opacity-80" style={{ color: colors.text }}>

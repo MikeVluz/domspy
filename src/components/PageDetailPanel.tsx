@@ -10,7 +10,7 @@ interface PageDetailPanelProps { page: PageDetail; onClose: () => void; onDismis
 function getTimeCategory(ms: number | null) { if (ms === null) return { label: "N/A", color: "#6B7280" }; if (ms < 900) return { label: "Otimo", color: "#14A44D" }; if (ms < 2000) return { label: "Aceitavel", color: "#E4A11B" }; return { label: "Ruim", color: "#DC4C64" }; }
 
 export default function PageDetailPanel({ page, onClose, onDismissAlert, dismissedAlerts = new Set(), onCrawlPage, groups = [], onAssignGroup, onRemoveFromGroup }: PageDetailPanelProps) {
-  const currentGroup = page.groupMembers?.[0]?.group || null;
+  const currentGroups = page.groupMembers?.map((m) => m.group) || [];
   const status = getPageStatus(page.statusCode, page.responseTime);
   const colors = STATUS_COLORS[status];
   const timeCat = getTimeCategory(page.responseTime);
@@ -30,44 +30,43 @@ export default function PageDetailPanel({ page, onClose, onDismissAlert, dismiss
     <div className="fixed right-0 top-0 h-screen w-1/2 min-w-[600px] max-w-[900px] bg-white shadow-2xl border-l border-gray-200 z-50 overflow-y-auto">
 
       <div className="sticky top-0 z-10 bg-white border-b border-gray-200">
-        <div className="px-10 py-5 flex items-center justify-between" style={{ backgroundColor: colors.bg }}>
-          <div>
-            <h3 className="text-xl font-bold break-all" style={{ color: colors.text }}>{page.title || page.url}</h3>
-            <a href={page.url} target="_blank" rel="noopener noreferrer" className="text-sm opacity-80 hover:opacity-100 break-all flex items-center gap-1 mt-1" style={{ color: colors.text }}>{page.url} <ArrowTopRightOnSquareIcon className="w-3 h-3 shrink-0" /></a>
+        {/* Row 1: Title + metrics on colored bar */}
+        <div className="px-10 py-5" style={{ backgroundColor: colors.bg }}>
+          <div className="flex items-start justify-between">
+            <div className="flex-1 min-w-0">
+              <h3 className="text-xl font-bold break-all" style={{ color: colors.text }}>{page.title || page.url}</h3>
+              <a href={page.url} target="_blank" rel="noopener noreferrer" className="text-sm opacity-80 hover:opacity-100 break-all flex items-center gap-1 mt-1" style={{ color: colors.text }}>{page.url} <ArrowTopRightOnSquareIcon className="w-3 h-3 shrink-0" /></a>
+            </div>
+            <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/20 shrink-0 ml-4"><XMarkIcon className="w-6 h-6" style={{ color: colors.text }} /></button>
           </div>
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-white/20 shrink-0 ml-4"><XMarkIcon className="w-6 h-6" style={{ color: colors.text }} /></button>
+          <div className="flex items-center gap-6 mt-3" style={{ color: colors.text }}>
+            <span className="text-sm opacity-80">Status: <strong>{page.statusCode === null ? "Pendente" : page.statusCode === 0 ? "ERR" : page.statusCode}</strong></span>
+            <span className="text-sm opacity-80"><ClockIcon className="w-3.5 h-3.5 inline" /> <strong>{page.responseTime ? `${page.responseTime}ms` : "N/A"}</strong> {page.responseTime !== null && <span className="opacity-70">({timeCat.label})</span>}</span>
+            <span className="text-sm opacity-80"><LinkIcon className="w-3.5 h-3.5 inline" /> <strong>{internalLinks.length}</strong> int / <strong>{externalLinks.length}</strong> ext</span>
+            {brokenLinks.length > 0 && <span className="text-sm bg-white/20 px-2 py-0.5 rounded-full"><strong>{brokenLinks.length}</strong> quebrados</span>}
+          </div>
+          {page.statusCode !== null && page.statusCode !== 200 && <div className="text-xs opacity-70 mt-1" style={{ color: colors.text }}>{getStatusErrorMessage(page.statusCode)}</div>}
         </div>
 
-        <div className="px-10 py-4 flex items-center gap-8 bg-gray-50">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-400">Status</span>
-            <span className="text-xl font-bold text-[#1a1a2e]">{page.statusCode === null ? "Pendente" : page.statusCode === 0 ? "ERR" : page.statusCode}</span>
-            {page.statusCode !== null && page.statusCode !== 200 && <div className="text-[10px] text-gray-500 mt-1 max-w-[150px]">{getStatusErrorMessage(page.statusCode)}</div>}
-          </div>
-          <div className="w-px h-8 bg-gray-200" />
-          <div className="flex items-center gap-2">
-            <ClockIcon className="w-4 h-4 text-gray-400" />
-            <span className="text-xl font-bold text-[#1a1a2e]">{page.responseTime ? `${page.responseTime}ms` : "N/A"}</span>
-            {page.responseTime !== null && <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ color: timeCat.color, backgroundColor: `${timeCat.color}15` }}>{timeCat.label}</span>}
-          </div>
-          <div className="w-px h-8 bg-gray-200" />
-          <div className="flex items-center gap-3">
-            <LinkIcon className="w-4 h-4 text-gray-400" />
-            <span className="text-sm text-[#1a1a2e]"><strong>{internalLinks.length}</strong> internos</span>
-            <span className="text-sm text-gray-400"><strong>{externalLinks.length}</strong> externos</span>
-            {brokenLinks.length > 0 && <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#DC4C64]/10 text-[#DC4C64]">{brokenLinks.length} quebrados</span>}
-          </div>
-          <div className="w-px h-8 bg-gray-200" />
-          <a href={`/api/download-html?url=${encodeURIComponent(page.url)}`} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3B82F6]/10 text-[#3B82F6] rounded-lg text-xs font-medium hover:bg-[#3B82F6]/20 shrink-0">
+        {/* Row 2: Action buttons */}
+        <div className="px-10 py-3 flex items-center gap-2 flex-wrap bg-gray-50">
+          <a href={`/api/download-html?url=${encodeURIComponent(page.url)}`} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#3B82F6]/10 text-[#3B82F6] rounded-lg text-xs font-medium hover:bg-[#3B82F6]/20">
             <CodeBracketIcon className="w-3.5 h-3.5" /> Baixar HTML
           </a>
           {onCrawlPage && (
-            <button onClick={() => onCrawlPage(page.url)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#14A44D]/10 text-[#14A44D] rounded-lg text-xs font-medium hover:bg-[#14A44D]/20 shrink-0">
+            <button onClick={() => onCrawlPage(page.url)} className="flex items-center gap-1.5 px-3 py-1.5 bg-[#14A44D]/10 text-[#14A44D] rounded-lg text-xs font-medium hover:bg-[#14A44D]/20">
               <ArrowPathIcon className="w-3.5 h-3.5" /> Crawl
             </button>
           )}
           {onAssignGroup && (
-            <GroupDropdown currentGroup={currentGroup} groups={groups} onAssign={(groupId) => onAssignGroup(page.id, groupId)} onRemove={onRemoveFromGroup ? () => onRemoveFromGroup(page.id) : undefined} />
+            <GroupDropdown currentGroups={currentGroups} groups={groups} onAssign={(groupId) => onAssignGroup(page.id, groupId)} onRemove={onRemoveFromGroup ? () => onRemoveFromGroup(page.id) : undefined} />
+          )}
+          {currentGroups.length > 0 && (
+            <div className="flex items-center gap-1 ml-2">
+              {currentGroups.map((g) => (
+                <span key={g.id} className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ backgroundColor: `${g.color}20`, color: g.color }}>{g.name}</span>
+              ))}
+            </div>
           )}
         </div>
 
@@ -193,18 +192,19 @@ export default function PageDetailPanel({ page, onClose, onDismissAlert, dismiss
   );
 }
 
-function GroupDropdown({ currentGroup, groups, onAssign, onRemove }: { currentGroup: GroupOption | null; groups: GroupOption[]; onAssign: (groupId: string) => void; onRemove?: () => void }) {
+function GroupDropdown({ currentGroups, groups, onAssign, onRemove }: { currentGroups: GroupOption[]; groups: GroupOption[]; onAssign: (groupId: string) => void; onRemove?: () => void }) {
   const [open, setOpen] = useState(false);
+  const currentIds = new Set(currentGroups.map((g) => g.id));
 
   return (
     <div className="relative">
-      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium shrink-0" style={currentGroup ? { backgroundColor: `${currentGroup.color}15`, color: currentGroup.color } : { backgroundColor: "#f3f4f6", color: "#6B7280" }}>
+      <button onClick={() => setOpen(!open)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 text-gray-600 hover:bg-gray-200">
         <SwatchIcon className="w-3.5 h-3.5" />
-        {currentGroup ? currentGroup.name : "Agrupar"}
+        {currentGroups.length > 0 ? `${currentGroups.length} grupo(s)` : "Agrupar"}
       </button>
 
       {open && (
-        <div className="absolute top-full right-0 mt-1 w-48 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden">
+        <div className="absolute top-full left-0 mt-1 w-52 bg-white rounded-xl shadow-xl border border-gray-200 z-50 overflow-hidden">
           {groups.length === 0 ? (
             <div className="px-3 py-2 text-xs text-gray-400">Nenhum grupo criado</div>
           ) : (
@@ -212,13 +212,13 @@ function GroupDropdown({ currentGroup, groups, onAssign, onRemove }: { currentGr
               <button key={g.id} onClick={() => { onAssign(g.id); setOpen(false); }} className="w-full px-3 py-2 text-xs text-left hover:bg-gray-50 flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: g.color }} />
                 {g.name}
-                {currentGroup?.id === g.id && <span className="ml-auto text-[10px] text-gray-400">atual</span>}
+                {currentIds.has(g.id) && <span className="ml-auto text-[10px] bg-gray-100 px-1.5 py-0.5 rounded">adicionado</span>}
               </button>
             ))
           )}
-          {currentGroup && onRemove && (
+          {currentGroups.length > 0 && onRemove && (
             <button onClick={() => { onRemove(); setOpen(false); }} className="w-full px-3 py-2 text-xs text-left text-[#DC4C64] hover:bg-[#DC4C64]/5 border-t border-gray-100">
-              Remover do grupo
+              Remover de todos os grupos
             </button>
           )}
         </div>
