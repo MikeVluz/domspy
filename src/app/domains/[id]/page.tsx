@@ -221,7 +221,7 @@ export default function DomainDetailPage({ params }: { params: Promise<{ id: str
         {/* Site Tree */}
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-[#1a1a2e] mb-4">Arvore de Sites</h2>
-          <SiteTreeGraph pages={domain.pages} onNodeClick={(pageId) => {
+          <SiteTreeGraph pages={domain.pages} domainId={id} onNodeClick={(pageId) => {
             setSelectedPageId(pageId);
             const page = domain.pages.find((p) => p.id === pageId);
             if (page) setPreviewUrl(page.url);

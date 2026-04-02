@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, Node, Edge, Background, Controls, MiniMap,
   useNodesState, useEdgesState, BackgroundVariant, MarkerType,
@@ -15,7 +15,7 @@ interface PageNode {
   groupMembers?: { group: { id: string; name: string; color: string } }[];
 }
 
-interface SiteTreeGraphProps { pages: PageNode[]; onNodeClick: (pageId: string) => void; }
+interface SiteTreeGraphProps { pages: PageNode[]; onNodeClick: (pageId: string) => void; domainId?: string; }
 
 const NODE_W = 180;
 const NODE_H = 60;
@@ -201,19 +201,68 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
   return { nodes, edges };
 }
 
-export default function SiteTreeGraph({ pages, onNodeClick }: SiteTreeGraphProps) {
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => buildHorizontalTreeLayout(pages), [pages]);
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
+function getCacheKey(domainId: string) { return `domspy-tree-positions-${domainId}`; }
+
+function loadPositions(domainId: string): Record<string, { x: number; y: number }> {
+  if (typeof window === "undefined") return {};
+  try { const data = localStorage.getItem(getCacheKey(domainId)); return data ? JSON.parse(data) : {}; } catch { return {}; }
+}
+
+function savePositions(domainId: string, nodes: Node[]) {
+  if (typeof window === "undefined") return;
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const node of nodes) { positions[node.id] = node.position; }
+  try { localStorage.setItem(getCacheKey(domainId), JSON.stringify(positions)); } catch {}
+}
+
+export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: SiteTreeGraphProps) {
+  const [resetKey, setResetKey] = useState(0);
+
+  const { nodes: layoutNodes, edges: initialEdges } = useMemo(() => buildHorizontalTreeLayout(pages), [pages, resetKey]);
+
+  // Apply cached positions
+  const initialNodes = useMemo(() => {
+    if (!domainId) return layoutNodes;
+    const cached = loadPositions(domainId);
+    return layoutNodes.map((node) => {
+      if (cached[node.id]) { return { ...node, position: cached[node.id] }; }
+      return node;
+    });
+  }, [layoutNodes, domainId]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+
+  // Save positions when nodes change (debounced)
+  const saveTimeout = useRef<NodeJS.Timeout | null>(null);
+  const handleNodesChange = useCallback((changes: any) => {
+    onNodesChange(changes);
+    if (domainId && saveTimeout.current) clearTimeout(saveTimeout.current);
+    if (domainId) {
+      saveTimeout.current = setTimeout(() => {
+        // Access current nodes via the setter to get latest state
+        setNodes((currentNodes) => { savePositions(domainId, currentNodes); return currentNodes; });
+      }, 500);
+    }
+  }, [onNodesChange, domainId, setNodes]);
+
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => { onNodeClick(node.id); }, [onNodeClick]);
+
+  const handleResetLayout = () => {
+    if (domainId) { try { localStorage.removeItem(getCacheKey(domainId)); } catch {} }
+    setResetKey((k) => k + 1);
+  };
 
   if (pages.length === 0) {
     return (<div className="h-[500px] flex items-center justify-center bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200"><p className="text-gray-400">Nenhuma pagina encontrada. Execute um crawl primeiro.</p></div>);
   }
 
   return (
-    <div className="h-[700px] rounded-2xl overflow-hidden border border-gray-200 bg-white">
-      <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
+    <div className="h-[700px] rounded-2xl overflow-hidden border border-gray-200 bg-white relative">
+      <button onClick={handleResetLayout} className="absolute top-3 right-3 z-10 px-3 py-1.5 bg-white/90 border border-gray-200 rounded-lg text-xs text-gray-500 hover:text-[#1a1a2e] hover:bg-white shadow-sm">
+        Resetar Layout
+      </button>
+      <ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} fitView={resetKey === 0 && Object.keys(loadPositions(domainId)).length === 0} fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e2e8f0" />
         <Controls showInteractive={false} className="!bg-white !border-gray-200 !rounded-xl !shadow-lg" />
         <MiniMap nodeColor={(node) => { const s = node.style as Record<string, string> | undefined; return s?.background || "#94a3b8"; }} className="!bg-gray-50 !border-gray-200 !rounded-xl" />
