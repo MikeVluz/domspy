@@ -16,104 +16,180 @@ interface PageNode {
 
 interface SiteTreeGraphProps { pages: PageNode[]; onNodeClick: (pageId: string) => void; }
 
-const NODE_WIDTH = 200;
-const NODE_HEIGHT = 70;
+const NODE_W = 180;
+const NODE_H = 60;
+const H_GAP = 50;
+const V_GAP = 30;
 
-function buildMindMapLayout(pages: PageNode[]) {
+function getUrlDepth(url: string): number {
+  try {
+    const path = new URL(url).pathname.replace(/\/$/, "");
+    if (!path || path === "") return 0;
+    return path.split("/").filter(Boolean).length;
+  } catch { return 0; }
+}
+
+function getUrlParentPath(url: string): string {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.replace(/\/$/, "").split("/").filter(Boolean);
+    if (parts.length <= 1) return u.origin + "/";
+    parts.pop();
+    return u.origin + "/" + parts.join("/");
+  } catch { return ""; }
+}
+
+function buildHorizontalTreeLayout(pages: PageNode[]) {
   const nodes: Node[] = [];
   const edges: Edge[] = [];
   if (pages.length === 0) return { nodes, edges };
 
+  // Build URL-based tree structure
   const pageById = new Map(pages.map((p) => [p.id, p]));
-  const adjacency = new Map<string, Set<string>>();
+  const pageByUrl = new Map(pages.map((p) => [p.url.replace(/\/$/, ""), p]));
 
-  for (const page of pages) {
-    if (!adjacency.has(page.id)) adjacency.set(page.id, new Set());
-    for (const link of page.linksFrom) {
-      if (link.toPageId && pageById.has(link.toPageId)) {
-        adjacency.get(page.id)!.add(link.toPageId);
-        if (!adjacency.has(link.toPageId)) adjacency.set(link.toPageId, new Set());
+  // Find parent for each page based on URL structure
+  const children = new Map<string, string[]>(); // parentId -> childIds
+  const parentOf = new Map<string, string>(); // childId -> parentId
+  const roots: string[] = [];
+
+  // Sort pages by URL depth (shallowest first)
+  const sorted = [...pages].sort((a, b) => getUrlDepth(a.url) - getUrlDepth(b.url));
+
+  for (const page of sorted) {
+    const depth = getUrlDepth(page.url);
+    if (depth === 0) {
+      roots.push(page.id);
+      continue;
+    }
+
+    // Try to find parent by URL path
+    const parentPath = getUrlParentPath(page.url);
+    const parentPage = pageByUrl.get(parentPath.replace(/\/$/, "")) || pageByUrl.get(parentPath);
+
+    if (parentPage && parentPage.id !== page.id) {
+      parentOf.set(page.id, parentPage.id);
+      const ch = children.get(parentPage.id) || [];
+      ch.push(page.id);
+      children.set(parentPage.id, ch);
+    } else {
+      // No URL parent found - attach to first root or make it a root
+      if (roots.length > 0 && !roots.includes(page.id)) {
+        parentOf.set(page.id, roots[0]);
+        const ch = children.get(roots[0]) || [];
+        ch.push(page.id);
+        children.set(roots[0], ch);
+      } else {
+        roots.push(page.id);
       }
     }
   }
 
-  let rootId = pages[0].id;
-  let maxLinks = 0;
-  for (const page of pages) {
-    const linkCount = page.linksFrom.filter((l) => l.toPageId && pageById.has(l.toPageId)).length;
-    if (linkCount > maxLinks) { maxLinks = linkCount; rootId = page.id; }
-  }
-  for (const page of pages) {
-    try { const u = new URL(page.url); if (u.pathname === "/" || u.pathname === "") { rootId = page.id; break; } } catch {}
+  // If no roots found, use first page
+  if (roots.length === 0 && pages.length > 0) {
+    roots.push(pages[0].id);
   }
 
-  const levels = new Map<string, number>();
-  const parentMap = new Map<string, string>();
-  const queue: string[] = [rootId];
-  levels.set(rootId, 0);
+  // Calculate subtree sizes for layout
+  const subtreeSize = new Map<string, { w: number; h: number }>();
 
-  while (queue.length > 0) {
-    const current = queue.shift()!;
-    const currentLevel = levels.get(current)!;
-    const neighbors = adjacency.get(current) || new Set();
-    for (const neighbor of neighbors) {
-      if (!levels.has(neighbor)) { levels.set(neighbor, currentLevel + 1); parentMap.set(neighbor, current); queue.push(neighbor); }
+  function calcSize(nodeId: string): { w: number; h: number } {
+    const ch = children.get(nodeId) || [];
+    if (ch.length === 0) {
+      const size = { w: NODE_W, h: NODE_H };
+      subtreeSize.set(nodeId, size);
+      return size;
     }
+
+    const childSizes = ch.map((c) => calcSize(c));
+    const totalChildH = childSizes.reduce((sum, s) => sum + s.h, 0) + (ch.length - 1) * V_GAP;
+    const maxChildW = Math.max(...childSizes.map((s) => s.w));
+    const size = { w: NODE_W + H_GAP + maxChildW, h: Math.max(NODE_H, totalChildH) };
+    subtreeSize.set(nodeId, size);
+    return size;
   }
 
-  for (const page of pages) {
-    if (!levels.has(page.id)) { levels.set(page.id, 1); parentMap.set(page.id, rootId); }
-  }
+  // Position nodes recursively (horizontal tree: x = depth, y = spread)
+  function positionNode(nodeId: string, x: number, y: number) {
+    const page = pageById.get(nodeId)!;
+    const status = getPageStatus(page.statusCode, page.responseTime);
+    const colors = STATUS_COLORS[status];
 
-  const levelGroups = new Map<number, string[]>();
-  for (const [pageId, level] of levels) {
-    if (!levelGroups.has(level)) levelGroups.set(level, []);
-    levelGroups.get(level)!.push(pageId);
-  }
+    let displayUrl = page.url;
+    try {
+      const u = new URL(page.url);
+      displayUrl = u.pathname === "/" ? u.hostname : u.pathname;
+    } catch {}
+    const label = page.title || displayUrl;
+    const truncLabel = label.length > 22 ? label.slice(0, 19) + "..." : label;
 
-  const maxLevel = Math.max(...levelGroups.keys());
-  const H_SPACING = NODE_WIDTH + 60;
-  const V_SPACING = NODE_HEIGHT + 100;
+    // Center node vertically in its allocated space
+    const mySize = subtreeSize.get(nodeId) || { w: NODE_W, h: NODE_H };
+    const nodeY = y + mySize.h / 2 - NODE_H / 2;
 
-  for (let level = 0; level <= maxLevel; level++) {
-    const group = levelGroups.get(level) || [];
-    const totalHeight = group.length * V_SPACING;
-    const startY = -totalHeight / 2 + V_SPACING / 2;
-
-    group.forEach((pageId, index) => {
-      const page = pageById.get(pageId)!;
-      const status = getPageStatus(page.statusCode, page.responseTime);
-      const colors = STATUS_COLORS[status];
-      let displayUrl = page.url;
-      try { const u = new URL(page.url); displayUrl = u.pathname === "/" ? u.hostname : u.pathname; } catch {}
-      const label = page.title || displayUrl;
-      const truncatedLabel = label.length > 25 ? label.slice(0, 22) + "..." : label;
-
-      nodes.push({
-        id: pageId, position: { x: level * H_SPACING, y: startY + index * V_SPACING },
-        data: { label: (<div className="text-center px-2 py-1"><div className="text-xs font-semibold truncate" style={{ color: colors.text }}>{truncatedLabel}</div><div className="text-[10px] mt-0.5 opacity-80" style={{ color: colors.text }}>{page.statusCode === null ? "Pendente" : page.statusCode === 0 ? "ERR" : `${page.statusCode} | ${page.responseTime || "?"}ms`}</div></div>) },
-        style: { background: colors.bg, border: "none", borderRadius: "12px", width: NODE_WIDTH, height: NODE_HEIGHT, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.15)", cursor: "pointer" },
-      });
+    nodes.push({
+      id: nodeId,
+      position: { x, y: nodeY },
+      data: {
+        label: (
+          <div className="text-center px-2 py-1">
+            <div className="text-[11px] font-semibold truncate" style={{ color: colors.text }}>{truncLabel}</div>
+            <div className="text-[9px] mt-0.5 opacity-80" style={{ color: colors.text }}>
+              {page.statusCode === null ? "Pendente" : page.statusCode === 0 ? "ERR" : `${page.statusCode} | ${page.responseTime || "?"}ms`}
+            </div>
+          </div>
+        ),
+      },
+      style: {
+        background: colors.bg, border: "none", borderRadius: "10px",
+        width: NODE_W, height: NODE_H, display: "flex", alignItems: "center",
+        justifyContent: "center", boxShadow: "0 3px 10px rgba(0,0,0,0.12)", cursor: "pointer",
+      },
     });
+
+    // Position children
+    const ch = children.get(nodeId) || [];
+    if (ch.length > 0) {
+      const childX = x + NODE_W + H_GAP;
+      let childY = y;
+
+      for (const childId of ch) {
+        const childSize = subtreeSize.get(childId) || { w: NODE_W, h: NODE_H };
+
+        // Edge
+        const parentStatus = status;
+        const edgeColor = STATUS_COLORS[parentStatus].bg;
+        edges.push({
+          id: `${nodeId}->${childId}`,
+          source: nodeId, target: childId,
+          type: "smoothstep",
+          style: { stroke: edgeColor, strokeWidth: 2, opacity: 0.5 },
+          markerEnd: { type: MarkerType.ArrowClosed, width: 10, height: 10, color: edgeColor },
+        });
+
+        positionNode(childId, childX, childY);
+        childY += childSize.h + V_GAP;
+      }
+    }
   }
 
-  const edgeSet = new Set<string>();
-  for (const [childId, pId] of parentMap) {
-    const edgeKey = `${pId}->${childId}`;
-    if (!edgeSet.has(edgeKey)) {
-      edgeSet.add(edgeKey);
-      const pp = pageById.get(pId);
-      const ps = pp ? getPageStatus(pp.statusCode, pp.responseTime) : "info";
-      const ec = STATUS_COLORS[ps].bg;
-      edges.push({ id: edgeKey, source: pId, target: childId, type: "smoothstep", style: { stroke: ec, strokeWidth: 2, opacity: 0.6 }, markerEnd: { type: MarkerType.ArrowClosed, width: 12, height: 12, color: ec } });
-    }
+  // Layout all roots
+  let rootY = 0;
+  for (const rootId of roots) {
+    calcSize(rootId);
+  }
+
+  for (const rootId of roots) {
+    const size = subtreeSize.get(rootId) || { w: NODE_W, h: NODE_H };
+    positionNode(rootId, 0, rootY);
+    rootY += size.h + V_GAP * 2;
   }
 
   return { nodes, edges };
 }
 
 export default function SiteTreeGraph({ pages, onNodeClick }: SiteTreeGraphProps) {
-  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => buildMindMapLayout(pages), [pages]);
+  const { nodes: initialNodes, edges: initialEdges } = useMemo(() => buildHorizontalTreeLayout(pages), [pages]);
   const [nodes, , onNodesChange] = useNodesState(initialNodes);
   const [edges, , onEdgesChange] = useEdgesState(initialEdges);
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => { onNodeClick(node.id); }, [onNodeClick]);
@@ -123,8 +199,8 @@ export default function SiteTreeGraph({ pages, onNodeClick }: SiteTreeGraphProps
   }
 
   return (
-    <div className="h-[600px] rounded-2xl overflow-hidden border border-gray-200 bg-white">
-      <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} fitView fitViewOptions={{ padding: 0.3 }} minZoom={0.1} maxZoom={2}>
+    <div className="h-[700px] rounded-2xl overflow-hidden border border-gray-200 bg-white">
+      <ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} fitView fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2}>
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e2e8f0" />
         <Controls showInteractive={false} className="!bg-white !border-gray-200 !rounded-xl !shadow-lg" />
         <MiniMap nodeColor={(node) => { const s = node.style as Record<string, string> | undefined; return s?.background || "#94a3b8"; }} className="!bg-gray-50 !border-gray-200 !rounded-xl" />
