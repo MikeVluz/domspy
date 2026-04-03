@@ -54,16 +54,10 @@ export async function POST(req: NextRequest) {
         where: { domainId, status: "running" },
         data: { status: "failed", finishedAt: new Date() },
       });
-      return NextResponse.json(
-        { error: "Crawl falhou: " + String(crawlError) },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Crawl falhou" }, { status: 500 });
     }
   } catch (error) {
     console.error("Crawl API error:", error);
-    return NextResponse.json(
-      { error: "Erro ao iniciar crawl: " + String(error) },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Erro ao iniciar crawl" }, { status: 500 });
   }
 }

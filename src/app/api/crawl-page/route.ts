@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/auth-helpers";
+import { isUrlSafe } from "@/lib/security";
 import axios from "axios";
 import * as cheerio from "cheerio";
 
@@ -19,8 +20,12 @@ export async function POST(req: NextRequest) {
     const { pageUrl, domainId } = await req.json();
     if (!pageUrl || !domainId) return NextResponse.json({ error: "pageUrl e domainId obrigatorios" }, { status: 400 });
 
+    // SSRF protection
+    const urlCheck = isUrlSafe(pageUrl);
+    if (!urlCheck.safe) return NextResponse.json({ error: urlCheck.reason }, { status: 400 });
+
     const start = Date.now();
-    const response = await axios.get(pageUrl, { timeout: 15000, maxRedirects: 5, validateStatus: () => true, headers: BROWSER_HEADERS });
+    const response = await axios.get(pageUrl, { timeout: 15000, maxRedirects: 3, validateStatus: () => true, headers: BROWSER_HEADERS });
     const responseTime = Date.now() - start;
     const contentType = response.headers["content-type"] || "";
 
@@ -89,6 +94,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, statusCode: response.status, responseTime });
   } catch (error) {
-    return NextResponse.json({ error: "Erro: " + String(error) }, { status: 500 });
+    return NextResponse.json({ error: "Erro ao processar pagina" }, { status: 500 });
   }
 }

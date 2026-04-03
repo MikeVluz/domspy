@@ -2,6 +2,7 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 import type { AnyNode, Element as DomElement } from "domhandler";
 import { prisma } from "./prisma";
+import { isUrlSafe } from "./security";
 
 interface CrawlOptions { maxPages?: number; maxDepth?: number; timeout?: number; }
 
@@ -144,9 +145,16 @@ function parseHtml(html: string, pageUrl: string): Omit<PageData, "statusCode" |
 }
 
 async function fetchPage(url: string, timeout: number): Promise<PageData | null> {
+  // SSRF protection: block internal/private IPs
+  const urlCheck = isUrlSafe(url);
+  if (!urlCheck.safe) {
+    console.warn(`SSRF blocked: ${url} - ${urlCheck.reason}`);
+    return { url, statusCode: 0, responseTime: 0, title: null, description: null, h1: null, headings: null, bodyText: null, images: null, links: [], contentHash: "" };
+  }
+
   const start = Date.now();
   try {
-    const response = await axios.get(url, { timeout, maxRedirects: 5, validateStatus: () => true, headers: BROWSER_HEADERS });
+    const response = await axios.get(url, { timeout, maxRedirects: 3, validateStatus: () => true, headers: BROWSER_HEADERS });
     const responseTime = Date.now() - start;
     const contentType = response.headers["content-type"] || "";
     if (!contentType.includes("text/html")) { return { url, statusCode: response.status, responseTime, title: null, description: null, h1: null, headings: null, bodyText: null, images: null, links: [], contentHash: "" }; }

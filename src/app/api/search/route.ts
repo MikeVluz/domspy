@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const exact = url.searchParams.get("exact") === "true";
   const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 100);
 
-  if (!q || q.length < 2) return NextResponse.json({ domains: [], pages: [] });
+  if (!q || q.length < 2 || q.length > 200) return NextResponse.json({ domains: [], pages: [] });
 
   const mode = exact ? ("default" as const) : ("insensitive" as const);
   const contains = exact ? q : q;
