@@ -3,7 +3,7 @@ import { useEffect, useState, use } from "react";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
-import { ArrowLeftIcon, ExclamationTriangleIcon, XCircleIcon, ClockIcon, DocumentTextIcon, PhotoIcon, LinkIcon } from "@heroicons/react/24/outline";
+import { ArrowLeftIcon, ExclamationTriangleIcon, XCircleIcon, ClockIcon, DocumentTextIcon, PhotoIcon, LinkIcon, ChevronDownIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
 
 interface PageData {
   id: string; url: string; title: string | null; description: string | null;
@@ -21,6 +21,16 @@ export default function AlertsPage({ params }: { params: Promise<{ id: string }>
   const router = useRouter();
   const [domain, setDomain] = useState<{ name: string; url: string; pages: PageData[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (category: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(category)) next.delete(category);
+      else next.add(category);
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (status === "authenticated") {
@@ -175,28 +185,40 @@ export default function AlertsPage({ params }: { params: Promise<{ id: string }>
           <div className="space-y-6">
             {groups.map((group) => {
               const Icon = iconMap[group.icon] || ExclamationTriangleIcon;
+              const isCollapsed = collapsed.has(group.category);
               return (
                 <div key={group.category} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between" style={{ borderLeftWidth: 4, borderLeftColor: group.color }}>
+                  <button
+                    onClick={() => toggleGroup(group.category)}
+                    className="w-full px-6 py-4 border-b border-gray-100 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                    style={{ borderLeftWidth: 4, borderLeftColor: group.color }}
+                  >
                     <div className="flex items-center gap-3">
+                      {isCollapsed ? <ChevronRightIcon className="w-4 h-4 text-gray-400" /> : <ChevronDownIcon className="w-4 h-4 text-gray-400" />}
                       <Icon className="w-5 h-5" />
                       <h2 className="text-base font-semibold text-[#1a1a2e]">{group.category}</h2>
                     </div>
                     <span className="text-sm font-bold px-3 py-1 rounded-full" style={{ color: group.color, backgroundColor: `${group.color}15` }}>
                       {group.items.length}
                     </span>
-                  </div>
-                  <div className="divide-y divide-gray-50">
-                    {group.items.map((item, i) => (
-                      <div key={`${item.pageId}-${i}`} className="px-6 py-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between" onClick={() => router.push(`/domains/${id}`)}>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-sm font-medium text-[#1a1a2e] truncate">{item.pageTitle || item.pageUrl}</div>
-                          <div className="text-xs text-gray-400 truncate">{item.pageUrl}</div>
+                  </button>
+                  {!isCollapsed && (
+                    <div className="divide-y divide-gray-50">
+                      {group.items.map((item, i) => (
+                        <div
+                          key={`${item.pageId}-${i}`}
+                          className="px-6 py-3 hover:bg-gray-50 cursor-pointer flex items-center justify-between group/item"
+                          onClick={() => router.push(`/domains/${id}?focusPage=${item.pageId}`)}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="text-sm font-medium text-[#1a1a2e] truncate group-hover/item:text-[#3B82F6] transition-colors">{item.pageTitle || item.pageUrl}</div>
+                            <div className="text-xs text-gray-400 truncate">{item.pageUrl}</div>
+                          </div>
+                          <div className="text-xs text-gray-500 ml-4 shrink-0 max-w-[300px] truncate">{item.detail}</div>
                         </div>
-                        <div className="text-xs text-gray-500 ml-4 shrink-0 max-w-[300px] truncate">{item.detail}</div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}

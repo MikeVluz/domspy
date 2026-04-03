@@ -15,7 +15,7 @@ interface PageNode {
   groupMembers?: { group: { id: string; name: string; color: string } }[];
 }
 
-interface SiteTreeGraphProps { pages: PageNode[]; onNodeClick: (pageId: string) => void; domainId?: string; }
+interface SiteTreeGraphProps { pages: PageNode[]; onNodeClick: (pageId: string) => void; domainId?: string; focusNodeId?: string; }
 
 const NODE_W = 180;
 const NODE_H = 60;
@@ -162,25 +162,15 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
 
     nodes.push({
       id: nodeId,
+      type: "tile",
       position: { x, y: nodeY },
       data: {
-        label: (
-          <div className="w-full h-full relative overflow-hidden rounded-[10px]">
-            {groupColors.length > 0 && (
-              <div className="absolute top-0 left-0 right-0 h-[6px] flex">
-                {groupColors.map((c, i) => (
-                  <div key={i} className="h-full flex-1" style={{ backgroundColor: c }} />
-                ))}
-              </div>
-            )}
-            <div className={`text-center px-2 flex flex-col items-center justify-center h-full ${groupColors.length > 0 ? "pt-1" : ""}`}>
-              <div className="text-[11px] font-semibold truncate w-full" style={{ color: colors.text }}>{truncLabel}</div>
-              <div className="text-[9px] mt-0.5 opacity-80" style={{ color: colors.text }}>
-                {getStatusLabel(page.statusCode)} {page.responseTime ? `| ${page.responseTime}ms` : ""}
-              </div>
-            </div>
-          </div>
-        ),
+        truncLabel,
+        statusLabel: getStatusLabel(page.statusCode),
+        responseTime: page.responseTime,
+        textColor: colors.text,
+        groupColors,
+        isFocused: false,
       },
       style: {
         background: colors.bg, border: "none", borderRadius: "10px",
@@ -296,6 +286,35 @@ function resolveCollisions(nodes: Node[], movedId: string): Node[] {
   return result;
 }
 
+function TileNode({ data }: { data: Record<string, unknown> }) {
+  const { truncLabel, statusLabel, responseTime, textColor, groupColors, isFocused } = data as {
+    truncLabel: string; statusLabel: string; responseTime: number | null;
+    textColor: string; groupColors: string[]; isFocused: boolean;
+  };
+  return (
+    <div className="w-full h-full relative overflow-hidden rounded-[10px]">
+      {groupColors.length > 0 && (
+        <div className="absolute top-0 left-0 right-0 h-[6px] flex">
+          {groupColors.map((c: string, i: number) => (
+            <div key={i} className="h-full flex-1" style={{ backgroundColor: c }} />
+          ))}
+        </div>
+      )}
+      {isFocused && (
+        <div className="absolute top-1/2 left-2 -translate-y-1/2 w-[10px] h-[10px] rounded-full border-2 border-white bg-white/30" style={{ boxShadow: "0 0 4px rgba(255,255,255,0.8)" }} />
+      )}
+      <div className={`text-center flex flex-col items-center justify-center h-full ${groupColors.length > 0 ? "pt-1" : ""} ${isFocused ? "pl-4 pr-2" : "px-2"}`}>
+        <div className="text-[11px] font-semibold truncate w-full" style={{ color: textColor }}>{truncLabel}</div>
+        <div className="text-[9px] mt-0.5 opacity-80" style={{ color: textColor }}>
+          {statusLabel} {responseTime ? `| ${responseTime}ms` : ""}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const nodeTypes = { tile: TileNode };
+
 function getCacheKey(domainId: string) { return `domspy-tree-positions-${domainId}`; }
 
 function loadPositions(domainId: string): Record<string, { x: number; y: number }> {
@@ -310,8 +329,10 @@ function savePositions(domainId: string, nodes: Node[]) {
   try { localStorage.setItem(getCacheKey(domainId), JSON.stringify(positions)); } catch {}
 }
 
-export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: SiteTreeGraphProps) {
+export default function SiteTreeGraph({ pages, onNodeClick, domainId = "", focusNodeId }: SiteTreeGraphProps) {
   const [resetKey, setResetKey] = useState(0);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | undefined>(focusNodeId);
+  const reactFlowRef = useRef<HTMLDivElement>(null);
   const pagesKey = useMemo(() => pages.map((p) => p.id).sort().join(","), [pages]);
 
   const { nodes: layoutNodes, edges: layoutEdges } = useMemo(() => buildHorizontalTreeLayout(pages), [pagesKey, resetKey]);
@@ -328,6 +349,34 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutEdges);
+
+  // Apply radio button indicator to focused/selected node
+  useEffect(() => {
+    setNodes((currentNodes) =>
+      currentNodes.map((node) => {
+        const isFocused = node.id === selectedNodeId;
+        const currentStyle = node.style || {};
+        return {
+          ...node,
+          style: {
+            ...currentStyle,
+            boxShadow: isFocused
+              ? "0 0 0 3px rgba(255,255,255,0.9), 0 0 0 5px rgba(59,130,246,0.5), 0 3px 10px rgba(0,0,0,0.12)"
+              : "0 3px 10px rgba(0,0,0,0.12)",
+          },
+          data: {
+            ...node.data,
+            isFocused,
+          },
+        };
+      })
+    );
+  }, [selectedNodeId, setNodes]);
+
+  // Sync focusNodeId from parent
+  useEffect(() => {
+    if (focusNodeId) setSelectedNodeId(focusNodeId);
+  }, [focusNodeId]);
 
   // Sync state when pages change (e.g., after crawl) or on reset
   const prevPagesKey = useRef(pagesKey);
@@ -364,7 +413,10 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
     }, 500);
   }, [onNodesChange, domainId, setNodes]);
 
-  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => { onNodeClick(node.id); }, [onNodeClick]);
+  const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
+    setSelectedNodeId(node.id);
+    onNodeClick(node.id);
+  }, [onNodeClick]);
 
   const handleNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
     setNodes((currentNodes) => {
@@ -386,11 +438,11 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
   }
 
   return (
-    <div className="h-[700px] rounded-2xl overflow-hidden border border-gray-200 bg-white relative">
+    <div ref={reactFlowRef} className="h-[700px] rounded-2xl overflow-hidden border border-gray-200 bg-white relative">
       <button onClick={handleResetLayout} className="absolute top-3 right-3 z-10 px-3 py-1.5 bg-white/90 border border-gray-200 rounded-lg text-xs text-gray-500 hover:text-[#1a1a2e] hover:bg-white shadow-sm">
         Resetar Layout
       </button>
-      <ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} onNodeDragStop={handleNodeDragStop} fitView={resetKey === 0 && !hasCachedPositions} fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
+      <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} onNodeDragStop={handleNodeDragStop} fitView={resetKey === 0 && !hasCachedPositions} fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e2e8f0" />
         <Controls showInteractive={false} className="!bg-white !border-gray-200 !rounded-xl !shadow-lg" />
         <MiniMap nodeColor={(node) => { const s = node.style as Record<string, string> | undefined; return s?.background || "#94a3b8"; }} className="!bg-gray-50 !border-gray-200 !rounded-xl" />

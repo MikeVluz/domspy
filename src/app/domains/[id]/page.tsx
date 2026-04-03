@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, use } from "react";
 import { useSession } from "next-auth/react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import SiteTreeGraph from "@/components/SiteTreeGraph";
 import PageDetailPanel from "@/components/PageDetailPanel";
@@ -29,6 +29,7 @@ export default function DomainDetailPage({ params }: { params: Promise<{ id: str
   const { id } = use(params);
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [domain, setDomain] = useState<DomainDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [crawling, setCrawling] = useState(false);
@@ -63,6 +64,16 @@ export default function DomainDetailPage({ params }: { params: Promise<{ id: str
   useEffect(() => { if (status === "authenticated") { fetchDomain(); fetchGroups(); } }, [status, id]);
   useEffect(() => { if (!crawling) return; const i = setInterval(fetchDomain, 3000); return () => clearInterval(i); }, [crawling]);
   useEffect(() => { if (domain?.crawls?.[0]?.status !== "running") setCrawling(false); }, [domain]);
+
+  // Handle focusPage query param from alerts page
+  useEffect(() => {
+    const focusPage = searchParams.get("focusPage");
+    if (focusPage && domain) {
+      setSelectedPageId(focusPage);
+      const page = domain.pages.find((p) => p.id === focusPage);
+      if (page) setPreviewUrl(page.url);
+    }
+  }, [searchParams, domain]);
 
   const handleCrawl = async () => {
     setCrawling(true);
@@ -221,7 +232,7 @@ export default function DomainDetailPage({ params }: { params: Promise<{ id: str
         {/* Site Tree */}
         <div className="mb-8">
           <h2 className="text-lg font-semibold text-[#1a1a2e] mb-4">Arvore de Sites</h2>
-          <SiteTreeGraph pages={domain.pages} domainId={id} onNodeClick={(pageId) => {
+          <SiteTreeGraph pages={domain.pages} domainId={id} focusNodeId={searchParams.get("focusPage") || selectedPageId || undefined} onNodeClick={(pageId) => {
             setSelectedPageId(pageId);
             const page = domain.pages.find((p) => p.id === pageId);
             if (page) setPreviewUrl(page.url);
