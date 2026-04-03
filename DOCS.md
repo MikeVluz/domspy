@@ -283,6 +283,132 @@ Unique: (fromFunnelId, toFunnelId)
 
 ---
 
+## Conexao com o Banco de Dados
+
+### Prisma Client (src/lib/prisma.ts)
+
+O Prisma usa o adapter `@prisma/adapter-pg` (PrismaPg) para conectar diretamente ao PostgreSQL via connection string, com SSL habilitado para compatibilidade com Supabase:
+
+```typescript
+const adapter = new PrismaPg({
+  connectionString: process.env.DATABASE_URL!,
+  ssl: { rejectUnauthorized: false },
+});
+const prisma = new PrismaClient({ adapter });
+```
+
+Em desenvolvimento, o client e armazenado em `globalThis` para evitar reconexoes a cada hot-reload do Next.js.
+
+### Configuracao Prisma (prisma.config.ts)
+
+```typescript
+import { defineConfig } from "prisma/config";
+export default defineConfig({
+  schema: "prisma/schema.prisma",
+  datasource: { url: process.env["DATABASE_URL"] },
+});
+```
+
+### Connection String
+
+Formato Supabase (Transaction Pooler, porta 6543):
+```
+postgresql://postgres.[REF]:[SENHA]@aws-0-[REGIAO].pooler.supabase.com:6543/postgres
+```
+
+---
+
+## Fluxo de Autenticacao
+
+### Login (NextAuth.js)
+
+1. Usuario submete email + senha no form `/login`
+2. NextAuth chama `authorize()` em `src/lib/auth.ts`
+3. Busca usuario por email no banco (`prisma.user.findUnique`)
+4. Verifica status: se `pending` → erro "PENDING"; se `disabled` → erro "DISABLED"
+5. Compara senha com hash usando `bcrypt.compare()`
+6. Se valido, retorna objeto user (sem senha) para o JWT
+7. Callbacks `jwt` e `session` adicionam `id`, `role` e `status` ao token/sessao
+8. Cliente recebe sessao via `useSession()` hook
+
+### Autorizacao (src/lib/auth-helpers.ts)
+
+```typescript
+// Hierarquia: viewer(0) < admin(1) < super_admin(2)
+requireRole("admin") // Verifica se role >= admin
+requireAuth()        // Apenas verifica se logado
+```
+
+Cada API route chama `requireRole()` no inicio. Se o nivel e insuficiente, retorna 403.
+
+### Registro
+
+1. POST `/api/auth/register` com name, email, password
+2. Rate limit: 5 por IP a cada 15 minutos
+3. Validacao: email formato, senha min 8 chars, nome min 2 chars
+4. Hash com bcrypt (12 rounds)
+5. Cria usuario com role=`viewer`, status=`pending`
+6. Super Admin aprova via `/api/users/[id]` PATCH (status → active)
+
+---
+
+## Fluxo do Crawler (src/lib/crawler.ts)
+
+### Processo Completo
+
+```
+crawlDomain(domainId, url)
+    │
+    ├── Cria CrawlSession (status: "running")
+    ├── Deleta todas as pages anteriores do dominio
+    │
+    ├── Tenta Sitemap:
+    │   ├── Busca /robots.txt → extrai URLs de Sitemap
+    │   ├── Busca /sitemap.xml e /sitemap_index.xml
+    │   ├── Se sitemap index → busca child sitemaps
+    │   └── Para cada URL do sitemap → fetchPage()
+    │
+    ├── Se sem sitemap → BFS Crawl:
+    │   ├── Comeca pela URL raiz
+    │   ├── Para cada pagina → fetchPage() → extrai links
+    │   ├── Links internos nao visitados entram na fila
+    │   └── Respeita maxPages(100) e maxDepth(5)
+    │
+    ├── Para cada pagina:
+    │   ├── fetchPage() com SSRF check
+    │   ├── parseHtml() → extrai titulo, h1, desc, headings, imagens, links
+    │   ├── Salva Page no banco
+    │   ├── Salva Links no banco
+    │   └── Atualiza contadores da CrawlSession
+    │
+    └── Finaliza CrawlSession (status: "completed")
+```
+
+### Extracao de Conteudo (parseHtml)
+
+O parser usa cheerio para extrair dados do HTML:
+
+1. **Metadados**: title, meta description, h1
+2. **Headings**: todos os h2, h3, h4 com tag e texto
+3. **Imagens**: src, alt, formato (detectado por extensao)
+4. **Links**: href, ancora, isExternal (compara hostname)
+5. **Body Text**: percorre o DOM na ordem real via `walkNode()`:
+   - Texto → adiciona ao output
+   - `<img>` → insere marcador `[IMG:N]` na posicao
+   - Blocos (div, p, h1-h6, li) → adiciona quebras de linha
+   - Secoes semanticas: HEADER, NAV, CONTEUDO PRINCIPAL, FOOTER
+6. **Content Hash**: hash simples do texto para detectar duplicados
+
+### Protecoes do Crawler
+
+- **SSRF**: `isUrlSafe()` bloqueia IPs privados antes de cada request
+- **Timeout**: 10s por pagina
+- **Max Redirects**: 3 (reduzido de 5 para limitar redirect chains)
+- **Cloudflare**: Detecta status 403 + "Just a moment" → marca crawl como "blocked"
+- **Headers**: User-Agent simula Chrome real para evitar bloqueios
+
+---
+
 ## Seguranca
 
 ### Headers HTTP (next.config.ts)
