@@ -200,6 +200,75 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
   return { nodes, edges };
 }
 
+// Anti-collision: push overlapping nodes away
+function resolveCollisions(nodes: Node[], movedId: string): Node[] {
+  const PADDING = 10;
+  const result = [...nodes];
+  const moved = result.find((n) => n.id === movedId);
+  if (!moved) return result;
+
+  const getRect = (n: Node) => {
+    const w = (n.style?.width as number) || NODE_W;
+    const h = (n.style?.height as number) || NODE_H;
+    return { x: n.position.x, y: n.position.y, w, h, r: n.position.x + w, b: n.position.y + h };
+  };
+
+  const overlaps = (a: ReturnType<typeof getRect>, b: ReturnType<typeof getRect>) =>
+    a.x < b.r + PADDING && a.r + PADDING > b.x && a.y < b.b + PADDING && a.b + PADDING > b.y;
+
+  // Iterative push: up to 10 passes to resolve cascading collisions
+  const processed = new Set<string>();
+  const queue = [movedId];
+
+  for (let pass = 0; pass < 10 && queue.length > 0; pass++) {
+    const currentId = queue.shift()!;
+    if (processed.has(currentId)) continue;
+    processed.add(currentId);
+
+    const current = result.find((n) => n.id === currentId);
+    if (!current) continue;
+    const currentRect = getRect(current);
+
+    for (const other of result) {
+      if (other.id === currentId) continue;
+      const otherRect = getRect(other);
+
+      if (overlaps(currentRect, otherRect)) {
+        // Calculate push direction (move other away from current)
+        const dx = (currentRect.x + currentRect.w / 2) - (otherRect.x + otherRect.w / 2);
+        const dy = (currentRect.y + currentRect.h / 2) - (otherRect.y + otherRect.h / 2);
+
+        // Push in the dominant direction
+        if (Math.abs(dx) > Math.abs(dy)) {
+          // Push horizontally
+          if (dx > 0) {
+            other.position = { ...other.position, x: currentRect.x - otherRect.w - PADDING };
+          } else {
+            other.position = { ...other.position, x: currentRect.r + PADDING };
+          }
+        } else {
+          // Push vertically
+          if (dy > 0) {
+            other.position = { ...other.position, y: currentRect.y - otherRect.h - PADDING };
+          } else {
+            other.position = { ...other.position, y: currentRect.b + PADDING };
+          }
+        }
+
+        // Snap to grid
+        other.position = {
+          x: Math.round(other.position.x / 20) * 20,
+          y: Math.round(other.position.y / 20) * 20,
+        };
+
+        queue.push(other.id);
+      }
+    }
+  }
+
+  return result;
+}
+
 function getCacheKey(domainId: string) { return `domspy-tree-positions-${domainId}`; }
 
 function loadPositions(domainId: string): Record<string, { x: number; y: number }> {
@@ -247,6 +316,14 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => { onNodeClick(node.id); }, [onNodeClick]);
 
+  const handleNodeDragStop = useCallback((_: React.MouseEvent, node: Node) => {
+    setNodes((currentNodes) => {
+      const resolved = resolveCollisions(currentNodes, node.id);
+      if (domainId) savePositions(domainId, resolved);
+      return resolved;
+    });
+  }, [setNodes, domainId]);
+
   const handleResetLayout = () => {
     if (domainId) { try { localStorage.removeItem(getCacheKey(domainId)); } catch {} }
     setResetKey((k) => k + 1);
@@ -261,7 +338,7 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
       <button onClick={handleResetLayout} className="absolute top-3 right-3 z-10 px-3 py-1.5 bg-white/90 border border-gray-200 rounded-lg text-xs text-gray-500 hover:text-[#1a1a2e] hover:bg-white shadow-sm">
         Resetar Layout
       </button>
-      <ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} fitView={resetKey === 0 && Object.keys(loadPositions(domainId)).length === 0} fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
+      <ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} onNodeDragStop={handleNodeDragStop} fitView={resetKey === 0 && Object.keys(loadPositions(domainId)).length === 0} fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e2e8f0" />
         <Controls showInteractive={false} className="!bg-white !border-gray-200 !rounded-xl !shadow-lg" />
         <MiniMap nodeColor={(node) => { const s = node.style as Record<string, string> | undefined; return s?.background || "#94a3b8"; }} className="!bg-gray-50 !border-gray-200 !rounded-xl" />
