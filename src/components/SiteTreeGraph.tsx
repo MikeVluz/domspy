@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, Node, Edge, Background, Controls, MiniMap,
   useNodesState, useEdgesState, BackgroundVariant, MarkerType,
+  Handle, Position,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { getPageStatus, STATUS_COLORS, getStatusLabel } from "@/types";
@@ -292,24 +293,28 @@ function TileNode({ data }: { data: Record<string, unknown> }) {
     textColor: string; groupColors: string[]; isFocused: boolean;
   };
   return (
-    <div className="w-full h-full relative overflow-hidden rounded-[10px]">
-      {groupColors.length > 0 && (
-        <div className="absolute top-0 left-0 right-0 h-[6px] flex">
-          {groupColors.map((c: string, i: number) => (
-            <div key={i} className="h-full flex-1" style={{ backgroundColor: c }} />
-          ))}
-        </div>
-      )}
-      {isFocused && (
-        <div className="absolute top-1/2 left-2 -translate-y-1/2 w-[10px] h-[10px] rounded-full border-2 border-white bg-white/30" style={{ boxShadow: "0 0 4px rgba(255,255,255,0.8)" }} />
-      )}
-      <div className={`text-center flex flex-col items-center justify-center h-full ${groupColors.length > 0 ? "pt-1" : ""} ${isFocused ? "pl-4 pr-2" : "px-2"}`}>
-        <div className="text-[11px] font-semibold truncate w-full" style={{ color: textColor }}>{truncLabel}</div>
-        <div className="text-[9px] mt-0.5 opacity-80" style={{ color: textColor }}>
-          {statusLabel} {responseTime ? `| ${responseTime}ms` : ""}
+    <>
+      <Handle type="target" position={Position.Left} className="!bg-transparent !border-none !w-1 !h-1" />
+      <div className="w-full h-full relative overflow-hidden rounded-[10px]">
+        {groupColors.length > 0 && (
+          <div className="absolute top-0 left-0 right-0 h-[6px] flex">
+            {groupColors.map((c: string, i: number) => (
+              <div key={i} className="h-full flex-1" style={{ backgroundColor: c }} />
+            ))}
+          </div>
+        )}
+        {isFocused && (
+          <div className="absolute top-1/2 left-2 -translate-y-1/2 w-[10px] h-[10px] rounded-full border-2 border-white bg-white/30" style={{ boxShadow: "0 0 4px rgba(255,255,255,0.8)" }} />
+        )}
+        <div className={`text-center flex flex-col items-center justify-center h-full ${groupColors.length > 0 ? "pt-1" : ""} ${isFocused ? "pl-4 pr-2" : "px-2"}`}>
+          <div className="text-[11px] font-semibold truncate w-full" style={{ color: textColor }}>{truncLabel}</div>
+          <div className="text-[9px] mt-0.5 opacity-80" style={{ color: textColor }}>
+            {statusLabel} {responseTime ? `| ${responseTime}ms` : ""}
+          </div>
         </div>
       </div>
-    </div>
+      <Handle type="source" position={Position.Right} className="!bg-transparent !border-none !w-1 !h-1" />
+    </>
   );
 }
 

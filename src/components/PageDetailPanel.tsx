@@ -125,53 +125,48 @@ export default function PageDetailPanel({ page, onClose, onDismissAlert, dismiss
           let imgs: { src: string; alt: string; format: string }[] = [];
           try { if (page.images) imgs = JSON.parse(page.images); } catch {}
 
-          // Build inline image reference component
+          // Inline image reference component
           const imgRef = (img: typeof imgs[0], idx: number) => {
             let name = img.src; try { name = new URL(img.src).pathname.split("/").pop() || img.src; } catch {}
             return (
-              <a key={`ref-${idx}`} href={img.src} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2 py-1 my-1 mx-0.5 hover:bg-gray-50 transition-colors align-middle" style={{ textDecoration: "none" }}>
-                <PhotoIcon className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                <span className="text-[10px] font-bold text-gray-500">#{idx + 1}</span>
-                <span className="text-[10px] text-gray-600 max-w-[120px] truncate">{img.alt || name}</span>
-                <span className={`text-[9px] font-bold px-1 rounded ${img.format === "WEBP" || img.format === "AVIF" ? "text-[#14A44D]" : img.format === "SVG" ? "text-[#3B82F6]" : img.format === "PNG" || img.format === "JPG" ? "text-[#E4A11B]" : "text-gray-400"}`}>{img.format}</span>
+              <a href={img.src} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-3 py-2 my-2 hover:bg-gray-50 transition-colors" style={{ textDecoration: "none" }}>
+                <PhotoIcon className="w-4 h-4 text-gray-400 shrink-0" />
+                <span className="text-xs font-bold text-gray-500 shrink-0">#{idx + 1}</span>
+                <span className="text-xs text-gray-600 truncate flex-1">{img.alt || name}</span>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 ${img.format === "WEBP" || img.format === "AVIF" ? "bg-[#14A44D]/10 text-[#14A44D]" : img.format === "SVG" ? "bg-[#3B82F6]/10 text-[#3B82F6]" : img.format === "PNG" || img.format === "JPG" ? "bg-[#E4A11B]/10 text-[#E4A11B]" : "bg-gray-100 text-gray-400"}`}>{img.format}</span>
               </a>
             );
+          };
+
+          // Parse body text with [IMG:N] markers for inline rendering
+          const renderBodyWithImages = (text: string) => {
+            // Split by [IMG:N] markers, keeping the markers as separate tokens
+            const parts = text.split(/(\[IMG:\d+\])/);
+            const elements: React.ReactNode[] = [];
+
+            for (let i = 0; i < parts.length; i++) {
+              const part = parts[i];
+              const imgMatch = part.match(/^\[IMG:(\d+)\]$/);
+              if (imgMatch) {
+                const imgIdx = parseInt(imgMatch[1], 10);
+                if (imgIdx >= 0 && imgIdx < imgs.length) {
+                  elements.push(<div key={`img-${i}`}>{imgRef(imgs[imgIdx], imgIdx)}</div>);
+                }
+              } else if (part.trim()) {
+                elements.push(<p key={`text-${i}`} className="whitespace-pre-wrap">{part}</p>);
+              }
+            }
+
+            return <div className="text-sm text-[#1a1a2e] leading-loose font-sans">{elements}</div>;
           };
 
           return (
             <>
               {page.bodyText && (
                 <div>
-                  <h4 className="text-base font-semibold text-[#1a1a2e] flex items-center gap-2 mb-5"><DocumentTextIcon className="w-5 h-5" /> Texto Completo da Pagina</h4>
+                  <h4 className="text-base font-semibold text-[#1a1a2e] flex items-center gap-2 mb-5"><DocumentTextIcon className="w-5 h-5" /> Estrutura da Pagina</h4>
                   <div className="bg-gray-50 rounded-xl p-6">
-                    {imgs.length > 0 ? (() => {
-                      // Split text into paragraphs and interleave image references
-                      const paragraphs = page.bodyText!.split(/\n\n+/).filter((p) => p.trim());
-                      const imgsPerParagraph = paragraphs.length > 0 ? Math.max(1, Math.ceil(imgs.length / paragraphs.length)) : imgs.length;
-                      let imgIdx = 0;
-
-                      return (
-                        <div className="text-sm text-[#1a1a2e] leading-loose font-sans">
-                          {paragraphs.map((para, pi) => {
-                            const paraImgs: typeof imgs = [];
-                            for (let j = 0; j < imgsPerParagraph && imgIdx < imgs.length; j++, imgIdx++) {
-                              paraImgs.push(imgs[imgIdx]);
-                            }
-                            const startIdx = imgIdx - paraImgs.length;
-                            return (
-                              <div key={pi} className="mb-3">
-                                <p className="whitespace-pre-wrap">{para}</p>
-                                {paraImgs.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-1">
-                                    {paraImgs.map((img, j) => imgRef(img, startIdx + j))}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })() : (
+                    {page.bodyText.includes("[IMG:") ? renderBodyWithImages(page.bodyText) : (
                       <pre className="text-sm text-[#1a1a2e] whitespace-pre-wrap font-sans leading-loose">{page.bodyText}</pre>
                     )}
                   </div>

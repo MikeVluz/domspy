@@ -49,23 +49,89 @@ function parseHtml(html: string, pageUrl: string): Omit<PageData, "statusCode" |
   const headings = headingsArr.length > 0 ? JSON.stringify(headingsArr) : null;
 
   $("script, style, noscript").remove();
+
+  // Walk DOM in order to capture text and image positions interleaved
+  // This creates a faithful representation of the page structure
+  const sectionTags = ["header", "nav", "main", "article", "section", "footer"];
+
+  // If page has semantic sections, use them; otherwise use body
+  let hasSemantic = false;
+  for (const tag of sectionTags) {
+    if ($(tag).length > 0) { hasSemantic = true; break; }
+  }
+
+  function walkNode(node: cheerio.AnyNode, output: string[]): void {
+    if (node.type === "text") {
+      const text = (node as unknown as { data: string }).data || "";
+      const clean = text.replace(/\s+/g, " ");
+      if (clean.trim()) output.push(clean);
+    } else if (node.type === "tag") {
+      const el = node as cheerio.Element;
+      const tagName = el.tagName?.toLowerCase();
+
+      // Skip hidden elements
+      if (["script", "style", "noscript"].includes(tagName)) return;
+
+      // Image marker
+      if (tagName === "img") {
+        const src = $(el).attr("src") || "";
+        if (src && !src.startsWith("data:")) {
+          const resolvedSrc = normalizeUrl(pageUrl, src) || src;
+          const imgIndex = imagesArr.findIndex((img) => img.src === resolvedSrc);
+          if (imgIndex >= 0) {
+            output.push(`\n[IMG:${imgIndex}]\n`);
+          }
+        }
+        return;
+      }
+
+      // Block elements add line breaks
+      const blockTags = ["div", "p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "tr", "br", "hr", "blockquote", "pre", "figure", "figcaption", "section", "article", "aside", "details", "summary"];
+      if (blockTags.includes(tagName)) output.push("\n");
+
+      // Recurse into children
+      const children = $(el).contents().toArray();
+      for (const child of children) { walkNode(child, output); }
+
+      if (blockTags.includes(tagName)) output.push("\n");
+    }
+  }
+
+  function extractSection(selector: string, label: string, maxLen: number): string {
+    const el = $(selector).first();
+    if (el.length === 0) return "";
+    const parts: string[] = [];
+    walkNode(el.get(0)!, parts);
+    const text = parts.join("")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]+$/gm, "")
+      .trim()
+      .slice(0, maxLen);
+    return text ? `[${label}]\n${text}` : "";
+  }
+
   const sections: string[] = [];
-  const headerText = $("header").first().text().replace(/\\s+/g, " ").trim();
-  if (headerText) sections.push(`[HEADER]\n${headerText.slice(0, 500)}`);
-  const navText = $("nav").first().text().replace(/\\s+/g, " ").trim();
-  if (navText && navText !== headerText) sections.push(`[NAV]\n${navText.slice(0, 300)}`);
-  const mainEl = $("main").length ? $("main") : $("article").length ? $("article") : $("body");
-  const mainText = mainEl.first().text().replace(/\\s+/g, " ").trim();
-  if (mainText) sections.push(`[CONTEUDO PRINCIPAL]\n${mainText.slice(0, 3000)}`);
-  const footerText = $("footer").first().text().replace(/\\s+/g, " ").trim();
-  if (footerText) sections.push(`[FOOTER]\n${footerText.slice(0, 500)}`);
-  // Clean: join sections, collapse multiple blank lines into one, remove leading/trailing whitespace per line
+  if (hasSemantic) {
+    const headerSec = extractSection("header", "HEADER", 500);
+    if (headerSec) sections.push(headerSec);
+    const navSec = extractSection("nav", "NAV", 300);
+    if (navSec && navSec !== headerSec) sections.push(navSec);
+    const mainSelector = $("main").length ? "main" : $("article").length ? "article" : "body";
+    const mainSec = extractSection(mainSelector, "CONTEUDO PRINCIPAL", 3000);
+    if (mainSec) sections.push(mainSec);
+    const footerSec = extractSection("footer", "FOOTER", 500);
+    if (footerSec) sections.push(footerSec);
+  } else {
+    const bodySec = extractSection("body", "CONTEUDO PRINCIPAL", 4000);
+    if (bodySec) sections.push(bodySec);
+  }
+
   const rawBody = sections.join("\n\n");
   const cleanedBody = rawBody
-    .replace(/\\n/g, "\n")          // fix escaped newlines
-    .replace(/[ \t]+$/gm, "")       // trim trailing spaces per line
-    .replace(/\n{3,}/g, "\n\n")     // collapse 3+ newlines to 2
-    .replace(/^\s*\n/gm, "")        // remove empty lines
+    .replace(/\\n/g, "\n")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^\s*\n/gm, "")
     .trim();
   const bodyTextTruncated = cleanedBody.slice(0, 5000) || null;
 
