@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow, Node, Edge, Background, Controls, MiniMap,
   useNodesState, useEdgesState, BackgroundVariant, MarkerType,
@@ -45,56 +45,84 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
   const edges: Edge[] = [];
   if (pages.length === 0) return { nodes, edges };
 
-  // Build URL-based tree structure
   const pageById = new Map(pages.map((p) => [p.id, p]));
-  const pageByUrl = new Map(pages.map((p) => [p.url.replace(/\/$/, ""), p]));
+  const pageByUrl = new Map<string, PageNode>();
+  for (const p of pages) {
+    pageByUrl.set(p.url.replace(/\/$/, ""), p);
+    pageByUrl.set(p.url, p);
+  }
 
-  // Find parent for each page based on URL structure
-  const children = new Map<string, string[]>(); // parentId -> childIds
-  const parentOf = new Map<string, string>(); // childId -> parentId
+  const children = new Map<string, string[]>();
+  const parentOf = new Map<string, string>();
   const roots: string[] = [];
+  const assigned = new Set<string>();
 
   // Sort pages by URL depth (shallowest first)
   const sorted = [...pages].sort((a, b) => getUrlDepth(a.url) - getUrlDepth(b.url));
 
+  // Helper: add child to parent
+  const addChild = (parentId: string, childId: string) => {
+    if (assigned.has(childId)) return false;
+    parentOf.set(childId, parentId);
+    const ch = children.get(parentId) || [];
+    ch.push(childId);
+    children.set(parentId, ch);
+    assigned.add(childId);
+    return true;
+  };
+
+  // Pass 1: find roots (depth 0)
   for (const page of sorted) {
-    const depth = getUrlDepth(page.url);
-    if (depth === 0) {
+    if (getUrlDepth(page.url) === 0) {
       roots.push(page.id);
-      continue;
+      assigned.add(page.id);
     }
+  }
+  if (roots.length === 0 && pages.length > 0) {
+    roots.push(sorted[0].id);
+    assigned.add(sorted[0].id);
+  }
 
-    // Try to find parent by URL path
-    const parentPath = getUrlParentPath(page.url);
-    const parentPage = pageByUrl.get(parentPath.replace(/\/$/, "")) || pageByUrl.get(parentPath);
-
-    if (parentPage && parentPage.id !== page.id) {
-      parentOf.set(page.id, parentPage.id);
-      const ch = children.get(parentPage.id) || [];
-      ch.push(page.id);
-      children.set(parentPage.id, ch);
-    } else {
-      // No URL parent found - attach to first root or make it a root
-      if (roots.length > 0 && !roots.includes(page.id)) {
-        parentOf.set(page.id, roots[0]);
-        const ch = children.get(roots[0]) || [];
-        ch.push(page.id);
-        children.set(roots[0], ch);
-      } else {
-        roots.push(page.id);
-      }
+  // Pass 2: use parentPageId from crawl data (most reliable)
+  for (const page of sorted) {
+    if (assigned.has(page.id)) continue;
+    if (page.parentPageId && pageById.has(page.parentPageId) && page.parentPageId !== page.id) {
+      addChild(page.parentPageId, page.id);
     }
   }
 
-  // If no roots found, use first page
-  if (roots.length === 0 && pages.length > 0) {
-    roots.push(pages[0].id);
+  // Pass 3: use URL hierarchy for remaining unassigned pages
+  for (const page of sorted) {
+    if (assigned.has(page.id)) continue;
+
+    // Try progressively shorter URL paths to find an ancestor
+    let found = false;
+    let currentUrl = page.url;
+    for (let i = 0; i < 10; i++) {
+      const parentPath = getUrlParentPath(currentUrl);
+      if (!parentPath || parentPath === currentUrl) break;
+      const parentPage = pageByUrl.get(parentPath.replace(/\/$/, "")) || pageByUrl.get(parentPath);
+      if (parentPage && parentPage.id !== page.id) {
+        addChild(parentPage.id, page.id);
+        found = true;
+        break;
+      }
+      currentUrl = parentPath;
+    }
+
+    // Last resort: attach to first root
+    if (!found) {
+      addChild(roots[0], page.id);
+    }
   }
 
   // Calculate subtree sizes for layout
   const subtreeSize = new Map<string, { w: number; h: number }>();
+  const visited = new Set<string>();
 
   function calcSize(nodeId: string): { w: number; h: number } {
+    if (visited.has(nodeId)) return { w: NODE_W, h: NODE_H };
+    visited.add(nodeId);
     const ch = children.get(nodeId) || [];
     if (ch.length === 0) {
       const size = { w: NODE_W, h: NODE_H };
@@ -111,8 +139,11 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
   }
 
   // Position nodes recursively (horizontal tree: x = depth, y = spread)
-  function positionNode(nodeId: string, x: number, y: number) {
+  function positionNode(nodeId: string, x: number, y: number, positioned: Set<string>) {
+    if (positioned.has(nodeId)) return;
+    positioned.add(nodeId);
     const page = pageById.get(nodeId)!;
+    if (!page) return;
     const status = getPageStatus(page.statusCode, page.responseTime);
     const colors = STATUS_COLORS[status];
 
@@ -168,9 +199,7 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
       for (const childId of ch) {
         const childSize = subtreeSize.get(childId) || { w: NODE_W, h: NODE_H };
 
-        // Edge
-        const parentStatus = status;
-        const edgeColor = STATUS_COLORS[parentStatus].bg;
+        const edgeColor = STATUS_COLORS[status].bg;
         edges.push({
           id: `${nodeId}->${childId}`,
           source: nodeId, target: childId,
@@ -179,7 +208,7 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
           markerEnd: { type: MarkerType.ArrowClosed, width: 10, height: 10, color: edgeColor },
         });
 
-        positionNode(childId, childX, childY);
+        positionNode(childId, childX, childY, positioned);
         childY += childSize.h + V_GAP;
       }
     }
@@ -187,23 +216,22 @@ function buildHorizontalTreeLayout(pages: PageNode[]) {
 
   // Layout all roots
   let rootY = 0;
-  for (const rootId of roots) {
-    calcSize(rootId);
-  }
+  for (const rootId of roots) { calcSize(rootId); }
 
+  const positioned = new Set<string>();
   for (const rootId of roots) {
     const size = subtreeSize.get(rootId) || { w: NODE_W, h: NODE_H };
-    positionNode(rootId, 0, rootY);
+    positionNode(rootId, 0, rootY, positioned);
     rootY += size.h + V_GAP * 2;
   }
 
   return { nodes, edges };
 }
 
-// Anti-collision: push overlapping nodes away
+// Anti-collision: push overlapping nodes away (with cascading)
 function resolveCollisions(nodes: Node[], movedId: string): Node[] {
-  const PADDING = 10;
-  const result = [...nodes];
+  const PADDING = 12;
+  const result = nodes.map((n) => ({ ...n, position: { ...n.position } }));
   const moved = result.find((n) => n.id === movedId);
   if (!moved) return result;
 
@@ -216,54 +244,53 @@ function resolveCollisions(nodes: Node[], movedId: string): Node[] {
   const overlaps = (a: ReturnType<typeof getRect>, b: ReturnType<typeof getRect>) =>
     a.x < b.r + PADDING && a.r + PADDING > b.x && a.y < b.b + PADDING && a.b + PADDING > b.y;
 
-  // Iterative push: up to 10 passes to resolve cascading collisions
-  const processed = new Set<string>();
-  const queue = [movedId];
+  // Iterative: repeat until no more collisions or max passes
+  for (let pass = 0; pass < 15; pass++) {
+    let hadCollision = false;
 
-  for (let pass = 0; pass < 10 && queue.length > 0; pass++) {
-    const currentId = queue.shift()!;
-    if (processed.has(currentId)) continue;
-    processed.add(currentId);
+    for (const current of result) {
+      const currentRect = getRect(current);
 
-    const current = result.find((n) => n.id === currentId);
-    if (!current) continue;
-    const currentRect = getRect(current);
+      for (const other of result) {
+        if (other.id === current.id) continue;
+        const otherRect = getRect(other);
 
-    for (const other of result) {
-      if (other.id === currentId) continue;
-      const otherRect = getRect(other);
+        if (!overlaps(currentRect, otherRect)) continue;
 
-      if (overlaps(currentRect, otherRect)) {
-        // Calculate push direction (move other away from current)
-        const dx = (currentRect.x + currentRect.w / 2) - (otherRect.x + otherRect.w / 2);
-        const dy = (currentRect.y + currentRect.h / 2) - (otherRect.y + otherRect.h / 2);
+        // Only push "other" if it's NOT the dragged node
+        const pusher = current.id === movedId ? current : other.id === movedId ? null : current;
+        const pushed = current.id === movedId ? other : other.id === movedId ? null : other;
+        if (!pusher || !pushed || pushed.id === movedId) continue;
 
-        // Push in the dominant direction
-        if (Math.abs(dx) > Math.abs(dy)) {
-          // Push horizontally
-          if (dx > 0) {
-            other.position = { ...other.position, x: currentRect.x - otherRect.w - PADDING };
+        const pusherRect = getRect(pusher);
+        const pushedRect = getRect(pushed);
+
+        // Calculate overlap amounts to find minimum push direction
+        const overlapX = Math.min(pusherRect.r - pushedRect.x, pushedRect.r - pusherRect.x);
+        const overlapY = Math.min(pusherRect.b - pushedRect.y, pushedRect.b - pusherRect.y);
+
+        // Push in direction of least overlap (minimum displacement)
+        if (overlapX < overlapY) {
+          const centerDx = (pusherRect.x + pusherRect.w / 2) - (pushedRect.x + pushedRect.w / 2);
+          if (centerDx > 0) {
+            pushed.position.x = pusherRect.x - pushedRect.w - PADDING;
           } else {
-            other.position = { ...other.position, x: currentRect.r + PADDING };
+            pushed.position.x = pusherRect.r + PADDING;
           }
         } else {
-          // Push vertically
-          if (dy > 0) {
-            other.position = { ...other.position, y: currentRect.y - otherRect.h - PADDING };
+          const centerDy = (pusherRect.y + pusherRect.h / 2) - (pushedRect.y + pushedRect.h / 2);
+          if (centerDy > 0) {
+            pushed.position.y = pusherRect.y - pushedRect.h - PADDING;
           } else {
-            other.position = { ...other.position, y: currentRect.b + PADDING };
+            pushed.position.y = pusherRect.b + PADDING;
           }
         }
 
-        // Snap to grid
-        other.position = {
-          x: Math.round(other.position.x / 20) * 20,
-          y: Math.round(other.position.y / 20) * 20,
-        };
-
-        queue.push(other.id);
+        hadCollision = true;
       }
     }
+
+    if (!hadCollision) break;
   }
 
   return result;
@@ -285,10 +312,11 @@ function savePositions(domainId: string, nodes: Node[]) {
 
 export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: SiteTreeGraphProps) {
   const [resetKey, setResetKey] = useState(0);
+  const pagesKey = useMemo(() => pages.map((p) => p.id).sort().join(","), [pages]);
 
-  const { nodes: layoutNodes, edges: initialEdges } = useMemo(() => buildHorizontalTreeLayout(pages), [pages, resetKey]);
+  const { nodes: layoutNodes, edges: layoutEdges } = useMemo(() => buildHorizontalTreeLayout(pages), [pagesKey, resetKey]);
 
-  // Apply cached positions
+  // Apply cached positions over computed layout
   const initialNodes = useMemo(() => {
     if (!domainId) return layoutNodes;
     const cached = loadPositions(domainId);
@@ -299,19 +327,41 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
   }, [layoutNodes, domainId]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(layoutEdges);
+
+  // Sync state when pages change (e.g., after crawl) or on reset
+  const prevPagesKey = useRef(pagesKey);
+  const prevResetKey = useRef(resetKey);
+  useEffect(() => {
+    if (prevPagesKey.current !== pagesKey || prevResetKey.current !== resetKey) {
+      prevPagesKey.current = pagesKey;
+      prevResetKey.current = resetKey;
+      setNodes(initialNodes);
+      setEdges(layoutEdges);
+    }
+  }, [pagesKey, resetKey, initialNodes, layoutEdges, setNodes, setEdges]);
 
   // Save positions when nodes change (debounced)
   const saveTimeout = useRef<NodeJS.Timeout | null>(null);
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+
+  // Save on unmount
+  useEffect(() => {
+    return () => {
+      if (domainId && nodesRef.current.length > 0) {
+        savePositions(domainId, nodesRef.current);
+      }
+    };
+  }, [domainId]);
+
   const handleNodesChange = useCallback((changes: any) => {
     onNodesChange(changes);
-    if (domainId && saveTimeout.current) clearTimeout(saveTimeout.current);
-    if (domainId) {
-      saveTimeout.current = setTimeout(() => {
-        // Access current nodes via the setter to get latest state
-        setNodes((currentNodes) => { savePositions(domainId, currentNodes); return currentNodes; });
-      }, 500);
-    }
+    if (!domainId) return;
+    if (saveTimeout.current) clearTimeout(saveTimeout.current);
+    saveTimeout.current = setTimeout(() => {
+      setNodes((currentNodes) => { savePositions(domainId, currentNodes); return currentNodes; });
+    }, 500);
   }, [onNodesChange, domainId, setNodes]);
 
   const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => { onNodeClick(node.id); }, [onNodeClick]);
@@ -329,6 +379,8 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
     setResetKey((k) => k + 1);
   };
 
+  const hasCachedPositions = useMemo(() => domainId ? Object.keys(loadPositions(domainId)).length > 0 : false, [domainId, resetKey]);
+
   if (pages.length === 0) {
     return (<div className="h-[500px] flex items-center justify-center bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200"><p className="text-gray-400">Nenhuma pagina encontrada. Execute um crawl primeiro.</p></div>);
   }
@@ -338,7 +390,7 @@ export default function SiteTreeGraph({ pages, onNodeClick, domainId = "" }: Sit
       <button onClick={handleResetLayout} className="absolute top-3 right-3 z-10 px-3 py-1.5 bg-white/90 border border-gray-200 rounded-lg text-xs text-gray-500 hover:text-[#1a1a2e] hover:bg-white shadow-sm">
         Resetar Layout
       </button>
-      <ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} onNodeDragStop={handleNodeDragStop} fitView={resetKey === 0 && Object.keys(loadPositions(domainId)).length === 0} fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
+      <ReactFlow nodes={nodes} edges={edges} onNodesChange={handleNodesChange} onEdgesChange={onEdgesChange} onNodeClick={handleNodeClick} onNodeDragStop={handleNodeDragStop} fitView={resetKey === 0 && !hasCachedPositions} fitViewOptions={{ padding: 0.2 }} minZoom={0.05} maxZoom={2} snapToGrid={true} snapGrid={[20, 20]}>
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color="#e2e8f0" />
         <Controls showInteractive={false} className="!bg-white !border-gray-200 !rounded-xl !shadow-lg" />
         <MiniMap nodeColor={(node) => { const s = node.style as Record<string, string> | undefined; return s?.background || "#94a3b8"; }} className="!bg-gray-50 !border-gray-200 !rounded-xl" />
